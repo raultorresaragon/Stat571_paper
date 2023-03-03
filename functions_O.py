@@ -438,7 +438,7 @@ def Plot(y, times, poly_ord, cZ, eta, a, b, kernel_type = "polynomial", sigma=0.
 ## Model Selection ##
 #####################
 
-#store_icl = []
+store_icl = []
 #for Q in range(2, 6):
 #    print(" Number of clusters: {}".format(Q))
 #    cZ, eta, a, b, icl = Fit(y, times, Q, poly_ord = poly_ord)

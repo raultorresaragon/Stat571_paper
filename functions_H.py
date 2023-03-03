@@ -7,6 +7,7 @@ Created on Mon Mar  4 17:48:09 2019
 """
 
 import numpy as np
+from scipy.linalg import toeplitz
 from scipy.special import loggamma
 from sklearn.utils import shuffle
 import torch, math 
@@ -21,31 +22,42 @@ device = "cpu"
 ######################################################################################################
 
 def gauss_kernel(x, sigma):
-    sigma_sq = sigma**2
+    sigma_sq = sigma ** 2
     n = len(x)
-    row_norm_sq = .5*np.square(x).sum(axis = 1)
-    M = row_norm_sq.repeat(n).reshape(-1,n)
-    return np.exp( ( np.matmul(x, x.transpose()) - M - M.transpose() )/sigma_sq ) 
-     
-def poly_kernel(x,n):
-    return np.power((1 + np.matmul(x, x.transpose())),n)
+    row_norm_sq = .5 * np.square(x).sum(axis = 1)
+    M = row_norm_sq.repeat(n).reshape(-1, n)
+    return np.exp( ( np.matmul(x, x.transpose()) - M - M.transpose() )/ sigma_sq )
+
+
+
+def poly_kernel(x, n):
+    return np.power((1 + np.matmul(x, x.transpose())), n)
+
+
 
 ## Function to (directly!) compute the blocks inside G_q^{-1}
-def PrecisionMatrix(eta_q, Card_q, K):
+def PrecisionMatrix(eta_q, Card_q, rho_q, K):
     D = len(K)
     A_q = eta_q * K
+    R_q = toeplitz(np.append(1, np.repeat(rho_q, D - 1)))
+
     # non diagonal block(s)
-    ndb = -np.matmul(np.linalg.inv(np.eye(D) + Card_q*A_q), A_q)   ## We can do better, inversion can be computed by hand
+    ndb = - np.matmul(np.linalg.inv(R_q + Card_q * A_q), A_q, np.linalg.inv(R_q))
+        ## We can do better, inversion can be computed by hand
+
     # diagonal block(s)
     db = np.eye(D) + ndb
+
     return [db, ndb]
+
+
 
 ## Function to compute the quadratic form associcated with cluster q 
 ## Provided that PrecisionMatrix is a O(D^2), the following function is O(ND^2) 
-def Quadraticq(ClusteredObs_q, SumObsIn_q, eta_q, K):
+def Quadraticq(ClusteredObs_q, SumObsIn_q, eta_q, rho_q, K):
     Card_q = ClusteredObs_q.shape[0]
-    db, ndb = PrecisionMatrix(eta_q, Card_q, K)
-    out = np.sum(np.power(ClusteredObs_q, 2)) + np.matmul(np.matmul(SumObsIn_q, ndb),SumObsIn_q.transpose())  
+    db, ndb = PrecisionMatrix(eta_q, Card_q, rho_q, K)
+    out = np.sum(np.power(ClusteredObs_q, 2)) + np.matmul(np.matmul(SumObsIn_q, ndb), SumObsIn_q.transpose())
     return out
     
 # Let's say that G_q = eta_q*KK_q + I. The following function computes KK_q
@@ -77,8 +89,8 @@ def ExactICL(y, cZ, theta, K, eigvals_):
     b = torch.repeat_interleave(torch.exp(theta[1]), repeats = Q)
     alpha_val = torch.exp(theta[3])
     alpha = torch.repeat_interleave(alpha_val, repeats = Q)
-    
-    eigvals = torch.tensor(eigvals_, dtype = torch.float32, device = device)  
+
+    eigvals = torch.tensor(eigvals_, dtype = torch.float32, device = device)
     # SumQuadTerms = torch.tensor(0.0, dtype = torch.float32, device = device)
     # LogSumDet = torch.tensor(0.0, dtype = torch.float32, device = device)
     SumLgammaCqaq = torch.tensor(0.0, dtype = torch.float32, device = device)
@@ -91,11 +103,13 @@ def ExactICL(y, cZ, theta, K, eigvals_):
         KK = torch.tensor(KK_, dtype = torch.float32, device = device)
         Cq = len(KK)/D
         SumLgammaCqaq += torch.lgamma(Cq + alpha[q])
+
         Gq = eta[q]*KK + torch.eye(len(KK), device = device)
         detGq = torch.prod(torch.tensor(1, device = device) + Cq*eta[q]*eigvals)
+
         pos = np.where(cZ == (q+1))
         val_ = y[pos[0], :].reshape(-1,1)
-        val = torch.tensor(val_, dtype = torch.float32, device = device)   
+        val = torch.tensor(val_, dtype = torch.float32, device = device)
         quadTermq = torch.matmul(val.transpose(1,0), torch.matmul(torch.inverse(Gq), val))[0,0]  # [0,0] because it is seen as a matrix
         LogDet = torch.tensor(-0.5, device = device)*torch.log(detGq)
         QuadTerms = torch.tensor(0.5, device = device)*quadTermq
@@ -214,6 +228,8 @@ def ClassifStep(y,
 ###################################### Auxiliary functions : end ##########################################                
 ###########################################################################################################                
 
+# cZ, eta, a, b, alpha, final_icl, loss =
+# Fit(y, times_, n_groups, ia = 1., ib = 1., ieta = .01, ialpha = 10., poly_ord = poly_ord, Z = iZ.copy(), lr = 1e-4, verbose = 1)
 def Fit(y,
         times,
         Q,
@@ -358,6 +374,7 @@ def ConfBounds(mu, Sigma, N = 5000, alpha = 0.95):
 ## Predictive Distributions ##
 ##############################
 def Plot(y, times, poly_ord, cZ, eta, a, b, kernel_type = "polynomial", sigma=0.2, SplitFigures = True, n_traj = 5000, palette = None):
+    print("plotting")
     if palette == None:
         colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'w', 'b']
     else:
@@ -419,35 +436,26 @@ def Plot(y, times, poly_ord, cZ, eta, a, b, kernel_type = "polynomial", sigma=0.
             plt.ylim(bottom, top)
             for idx in range(np.min((30,len(ClusteredObs[q])))):
                 plt.plot(times, np.array(ClusteredObs[q][idx,:]).reshape(len(times),), color = colors[q], linewidth = 0.5)
+                #plt.show()
                 plt.plot(times_, mean_traj[q,:], color = "black")
+                #plt.show()
                 plt.plot(times_, ub, '--', color = "black")
                 plt.plot(times_, lb, '--', color = "black")
+                #plt.show()
+            #plt.show()
         else:
-            plt.subplot(3,np.ceil(Q/3),(q+1))
+            plt.subplot(3,int(np.ceil(Q/3)),(q+1))
             plt.title('Cluster '+ str(q))
             plt.xlabel("Time")
             plt.ylabel("Trajectory")
             plt.ylim(bottom, top)
             for idx in range(np.min((30,len(ClusteredObs[q])))):
                 plt.plot(times, np.array(ClusteredObs[q][idx,:]).reshape(len(times),), color = colors[q], linewidth = 0.5)
+                #plt.show()
                 plt.plot(times_, mean_traj[q,:], color = "black")
+                #plt.show()
                 plt.plot(times_, ub, '--', color = "black")
+                #plt.show()
                 plt.plot(times_, lb, '--', color = "black")
-
-        
-
-
-#Plot(y, times, cZ, eta, a, b,  SplitFigures = False)
-
-#####################
-## Model Selection ##
-#####################
-
-#store_icl = []
-#for Q in range(2, 6):
-#    print(" Number of clusters: {}".format(Q))
-#    cZ, eta, a, b, icl = Fit(y, times, Q, poly_ord = poly_ord)
-#    store_icl.append(icl)
-
-
-
+                #plt.show()
+            #plt.show()
