@@ -6,6 +6,8 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 library(Matrix)
 library(matrixcalc)
+library(ggplot2)
+library(tidyverse)
 rm(list = ls())
 set.seed(571)
 
@@ -28,8 +30,8 @@ phi  <- 1:D
 # fake data #
 #-----------#
 n <- rep(1:N, each=D)                                #<-think of it as trajectory id
-e <- rep(sig2[z], D) * rnorm(n=N*D, mean=0, sd=1)    #<-disturbance at each time period per trajectory 
-b <- rep(tau2[z], each=D)                            #<-random effect per cluster
+e <- rep(sqrt(sig2[z]), each=D) * rnorm(n=N*D, mean=0, sd=1)    #<-disturbance at each time period per trajectory 
+b <- rep(rnorm(N,0,sqrt(tau2[z])), each=D)                            #<-random effect per cluster
 t <- rep(1:D, N)                                     #<-time period
 y <- rep(beta[z], each=D)*t + b + e                  #<-eq(1) on paper: Phi%*%Beta + sigma*epsilon
 q <- rep(z, each=D)                                  #<-cluster the trajectory belongs to
@@ -84,7 +86,7 @@ llik_Y_q <- function(y, rho, eta=1, a=1, b=1) {
   # log determinant of G
   # from Erin's calculations: det(G) = det(R)^{c-1} times det(R+cA)
   detR <- (1-rho)^(D-1)*(1+(D-1)*rho)
-  ldetG <- (C-1)*log(det(R)) + log(det(R+C*A))
+  ldetG <- (C-1)*log(det(R)) + log(det(as.matrix(R+C*A)))
   
   # quadratic form term yGy
   Rinv_w <- -rho/((1-rho)*(1+(D-1)*rho))
@@ -120,9 +122,7 @@ get_logT1 <- function(y, z, N_rho=10) {
 #-------------# 
 get_logT2 <- function(alpha=10, z, Q_guess){  #D, N, Q_guess) { #<-alpha=10 is what the paper recommends
   y <- matrix(y, nrow=N, ncol=D, byrow = TRUE)
-  Q <- 1:Q_guess
   C <- table(z) # how many individuals are in each cluster
-  stopifnot(sum(C) == N)
   # from the paper we have: 
   # T2 = gamma(sum_q^Q{alpha_q})/prod_q^Q gamma(alpha) * 
   #      prod_1^Q gamma(C_q+alpha)/gamma(N + sum_1^Q alpha)
@@ -137,12 +137,13 @@ get_logT2 <- function(alpha=10, z, Q_guess){  #D, N, Q_guess) { #<-alpha=10 is w
 find_Z <- function(y, z_start, Q_guess, N_rho, D, N, phi, llthresh=.01) {
   
   Q <- 1:Q_guess
-  C <- nrow(y)
   
-  # current Z assignment, new Z assignment
+  # z_curr and llik_curr track current state after last full iteration through i
+  # z_new and llik_new track fully current state
   z_curr  <- z_start
   z_new   <- z_curr
   llik_curr <- get_logT1(y, z=z_curr, N_rho) + get_logT2(alpha=10, z_curr, Q_guess)
+  llik_new <- llik_curr 
   done <- FALSE; log_diff <- 1
   print(paste0("initial likelihood = ", llik_curr))
   
@@ -156,21 +157,20 @@ find_Z <- function(y, z_start, Q_guess, N_rho, D, N, phi, llthresh=.01) {
           #q_llik <- get_logT1(y=y, z=z_prop, N_rho) + get_logT2(alpha=10, z_prop, Q_guess)
           if(llik_prop>llik_curr){
             z_new <- z_prop
-            llik_curr <- llik_prop
+            llik_new <- llik_prop
           }
         }
       }
     }
-    # Get the highest likelihood after iterating over all N, and 
-    # compare with max likelihood so far, if the change is below threshold end while loop
-    llik_previous <- llik_afterallN
-    llik_afterallN <- max(llik_curr, llik_afterallN)
-    log_diff <- llik_afterallN - llik_previous
-    print(paste0("likelihood = ", round(llik_afterallN, 2), 
+    # Check whether llik has changed by more than threshold, then update llik
+    log_diff <- llik_new-llik_curr
+    print(paste0("likelihood = ", round(llik_new, 2), 
                  "  reduction: ", round(log_diff,3)))
     done <- all(z_curr==z_new) | (log_diff < llthresh)
+    llik_curr <- llik_new
+    z_curr <- z_new
   }
-  o <- list(z_fit=z_new, loglikelihood=llik_afterallN)
+  o <- list(z_fit=z_curr, loglikelihood=llik_curr)
   return(o)
 }
 
@@ -181,7 +181,7 @@ Q_guess <- 6
 ZQs <- dplyr::tibble(TrajectoryN=1:N, TrueZ = df$q[df$t==1])
 llikes <- vector(mode = "numeric", length = 0)
 for(q_ in 2:Q_guess) {
-  z_start <- sample(1:q_, N, replace = TRUE)
+  z_start <- sample(rep(1:q_, ceiling(N/q_)), N) # randomly allocates Z evenly to clusters
   Z_fit <- find_Z(df$y, z_start=z_start, Q_guess=q_, N_rho=10, 
                   D=D, N=N, phi=phi, llthresh=.1)
   ZQs[[paste0("ZQ",q_)]] <- Z_fit$z_fit
@@ -190,14 +190,5 @@ for(q_ in 2:Q_guess) {
 }
 
 output <- list(Z_fits = ZQs, llikes = llikes)
-
-
-
-
-
-
-
-
-
 
 
