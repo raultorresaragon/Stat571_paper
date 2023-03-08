@@ -20,9 +20,9 @@ Q <- 4    # number of clusters (i.e. trajectory type) [we get to know this when 
 D <- 6    # number of measurements per trajectory
 z <- rep(1:Q, ceiling(N/Q))[1:N] # cluster assignment of each trajectory (i.e. person)
 
-beta <- c(0.5, 0.6, 0.55,0.61, 6.2, -1., 8. )  #<-as many as unique(Q) values
-sig2 <- c(0.1, 0.2, 0.3, 0.2 , 0.6, 0.3, 0.4)  #<-as many as unique(Q) values
-tau2 <- c(0.9, 0.5, 0.7, 0.2 , 0.2, 0.4, 0.6)  #<-as many as unique(Q) values
+beta <- c(0.1, 0.6, -.2, 1.1,-1.2,-1.7, 8. )  #<-as many as unique(Q) values
+sig2 <- c(0.1, 0.2, 0.3, 0.2, 0.6, 0.3, 0.4)  #<-as many as unique(Q) values
+tau2 <- c(0.9, 0.5, 0.7, 0.2, 0.2, 0.4, 0.6)  #<-as many as unique(Q) values
 phi  <- 1:D
 
 
@@ -41,12 +41,12 @@ df[1:20,]
 
 mypalette <- c("#D55E00", "#56B4E9", "#009E73", "#F0E442", "#CC79A7", "#0072B2", "#E69F00")
 df |> 
-   ggplot(aes(x=t, y=y, color=as.factor(q), group=as.factor(n))) +
-   geom_line() +
-   theme_bw() + 
-   scale_colour_manual(values=mypalette) + 
-   theme(legend.position = "none") +
-   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+  ggplot(aes(x=t, y=y, color=as.factor(q), group=as.factor(n))) +
+  geom_line() +
+  theme_bw() + 
+  scale_colour_manual(values=mypalette) + 
+  theme(legend.position = "none") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
 
 # The idea: 
 # We don't know what cluster each trajectory belongs to. In fact, we don't even know 
@@ -113,7 +113,7 @@ get_logT1 <- function(y, z, N_rho=10) {
   
   # get likelihood per q,rho combo
   llik_q_rho <- purrr::map2_dbl(.x=q_rho$q, .y=q_rho$rho, 
-                                ~llik_Y_q(y[z==.x,], rho=.y))
+                                ~llik_Y_q(y[z==.x,,drop=F], rho=.y)) # drop=F ensures y is matrix even if 1 row
   sum(llik_q_rho)/N_rho
 }
 
@@ -153,8 +153,11 @@ find_Z <- function(y, z_start, Q_guess, N_rho, D, N, phi, llthresh=.01) {
       if(sum(z_new==z_new[i]) > 1) { # more than one individual in a cluster
         for(q in setdiff(1:Q_guess, z_curr[i])){
           z_prop <- ifelse((1:N) != i, z_new, q) # move one individual to a new cluster
+          #if(any((table(z_prop) |> unname()) < 2) == TRUE) {
+          #  print("skip iteration because there's only 1 n in cluster")
+          #  next
+          #}
           llik_prop <- get_logT1(y=y, z=z_prop, N_rho) + get_logT2(alpha=10, z_prop, Q_guess)
-          #q_llik <- get_logT1(y=y, z=z_prop, N_rho) + get_logT2(alpha=10, z_prop, Q_guess)
           if(llik_prop>llik_curr){
             z_new <- z_prop
             llik_new <- llik_prop
@@ -178,10 +181,11 @@ find_Z <- function(y, z_start, Q_guess, N_rho, D, N, phi, llthresh=.01) {
 # BAYESIAN CLUSTER ME! #
 # ~~~~~~~~~~~~~~~~~~~~ #
 Q_guess <- 6
-ZQs <- dplyr::tibble(TrajectoryN=1:N, TrueZ = df$q[df$t==1])
+ZQs <- dplyr::tibble(TrajectoryN = 1:N, TrueZ = df$q[df$t==1])
 llikes <- vector(mode = "numeric", length = 0)
 for(q_ in 2:Q_guess) {
   z_start <- sample(rep(1:q_, ceiling(N/q_)), N) # randomly allocates Z evenly to clusters
+  print(paste0("guessing ", q_, "clusters"))
   Z_fit <- find_Z(df$y, z_start=z_start, Q_guess=q_, N_rho=10, 
                   D=D, N=N, phi=phi, llthresh=.1)
   ZQs[[paste0("ZQ",q_)]] <- Z_fit$z_fit
@@ -191,4 +195,6 @@ for(q_ in 2:Q_guess) {
 
 output <- list(Z_fits = ZQs, llikes = llikes)
 
-
+bestQ <- (2:Q_guess)[which.max(llikes)]
+print(paste0("This algorithm picks Q=", bestQ))
+output <- list(Z_fits = ZQs, llikes = llikes, bestQ = bestQ)
