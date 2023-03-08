@@ -30,8 +30,8 @@ phi  <- 1:D
 # fake data #
 #-----------#
 n <- rep(1:N, each=D)                                #<-think of it as trajectory id
-e <- rep(sqrt(sig2[z]), each=D) * rnorm(n=N*D,0,1)   #<-disturbance at each time period per trajectory 
-b <- rep(rnorm(N,0,sqrt(tau2[z])), each=D)           #<-random effect per cluster
+e <- rep(sqrt(sig2[z]), each=D) * rnorm(n=N*D, mean=0, sd=1)    #<-disturbance at each time period per trajectory 
+b <- rep(rnorm(N,0,sqrt(tau2[z])), each=D)                            #<-random effect per cluster
 t <- rep(1:D, N)                                     #<-time period
 y <- rep(beta[z], each=D)*t + b + e                  #<-eq(1) on paper: Phi%*%Beta + sigma*epsilon
 q <- rep(z, each=D)                                  #<-cluster the trajectory belongs to
@@ -113,7 +113,7 @@ get_logT1 <- function(y, z, N_rho=10) {
   
   # get likelihood per q,rho combo
   llik_q_rho <- purrr::map2_dbl(.x=q_rho$q, .y=q_rho$rho, 
-                                ~llik_Y_q(y[z==.x,], rho=.y))
+                                ~llik_Y_q(y[z==.x,,drop=F], rho=.y)) # drop=F ensures y is matrix even if 1 row
   sum(llik_q_rho)/N_rho
 }
 
@@ -153,10 +153,10 @@ find_Z <- function(y, z_start, Q_guess, N_rho, D, N, phi, llthresh=.01) {
       if(sum(z_new==z_new[i]) > 1) { # more than one individual in a cluster
         for(q in setdiff(1:Q_guess, z_curr[i])){
           z_prop <- ifelse((1:N) != i, z_new, q) # move one individual to a new cluster
-          if(any((table(z_prop) |> unname()) < 2) == TRUE) {
-            print("skip iteration because there's only 1 n in cluster")
-            next
-          }
+          #if(any((table(z_prop) |> unname()) < 2) == TRUE) {
+          #  print("skip iteration because there's only 1 n in cluster")
+          #  next
+          #}
           llik_prop <- get_logT1(y=y, z=z_prop, N_rho) + get_logT2(alpha=10, z_prop, Q_guess)
           if(llik_prop>llik_curr){
             z_new <- z_prop
@@ -192,7 +192,9 @@ for(q_ in 2:Q_guess) {
   llikes[q_-1] <- Z_fit$loglikelihood
   #llikes[q_-1] <- get_logT1(y, z=Z_fit$z_fit, N_rho=10) + get_logT2(alpha=10, Z_fit$z_fit, Q_guess)
 }
+
+output <- list(Z_fits = ZQs, llikes = llikes)
+
 bestQ <- (2:Q_guess)[which.max(llikes)]
 print(paste0("This algorithm picks Q=", bestQ))
 output <- list(Z_fits = ZQs, llikes = llikes, bestQ = bestQ)
-
