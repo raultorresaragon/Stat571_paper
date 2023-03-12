@@ -8,6 +8,7 @@ library(Matrix)
 library(matrixcalc)
 library(ggplot2)
 library(tidyverse)
+library(cluster)
 rm(list = ls())
 set.seed(571)
 
@@ -197,4 +198,35 @@ for(q_ in 2:Q_guess) {
 bestQ <- (2:Q_guess)[which.max(llikes)]
 print(paste0("This algorithm picks Q=", bestQ))
 output <- list(Z_fits = ZQs, llikes = llikes, bestQ = bestQ)
+
+
+# ~~~~~~~~~~~~~~~~~~~~ #
+# silhouette           #
+# ~~~~~~~~~~~~~~~~~~~~ #
+qq_ = 2:Q_guess
+# take the columns for euclidean distance
+df_filtered = df[, c("t", "y", "b")]
+# df_filtered[, "t"] = scale(df_filtered[, "t"])
+silhouette_values <- vector(length = length(qq_))
+
+# get silhouette for all clusters assignments
+for(q_ in qq_) {
+  print(paste0("Getting silhouette for ", q_, " clusters"))
+
+  clusters = ZQs[[paste0("ZQ",q_)]]
+  clusters_rep = rep(clusters, each = D)
+  
+  silhouette_ =  silhouette(clusters_rep, dist(df_filtered))
+  silhouette_values[q_ - 1] = mean(silhouette_[, 3]) 
+}
+# plot
+plot(qq_, silhouette_values, type = "b", xlab = "Number of clusters", ylab = "Silhouette coefficient")
+#pick max
+bestQ_ <- qq_[which.max(silhouette_values)]
+cat("Optimal number of clusters:", bestQ_, "\n")
+
+ans = cbind(qq_, silhouette_values)
+write.csv(ans, file = "silhouette.csv", row.names = FALSE)
+
+
 
