@@ -26,8 +26,8 @@ sig2 <- c(0.05, 0.1, 0.3, 0.2, 0.6, 0.3, 0.4)  #<-as many as unique(Q) values
 tau2 <- c(0.1, 0.1, 0.25, 0.2, 0.2, 0.4, 0.6)  #<-as many as unique(Q) values
 phi  <- 1:D
 
-(rho <- tau2/(sig2+tau2))
-(var <- tau2+sig2)
+(rho <- tau2/(sig2+tau2))[1:Q]
+(var <- tau2+sig2)[1:Q]
 
 #-----------#
 # fake data #
